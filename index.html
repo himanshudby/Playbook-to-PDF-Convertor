@@ -31,8 +31,13 @@
       .playbook-page {
         padding: 40px;
         background-color: white;
-        min-height: 1122px; /* Approx A4 height at 96dpi */
         box-sizing: border-box;
+        page-break-inside: avoid; /* Prevent breaking content within a playbook */
+      }
+
+      /* Page break before each playbook except the first one */
+      .playbook-page:not(:first-child) {
+        page-break-before: always;
       }
 
       /* Ensure html2pdf respects the page break */
