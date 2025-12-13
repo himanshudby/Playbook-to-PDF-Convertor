@@ -12,6 +12,11 @@ export default defineConfig(({ mode }) => {
         host: '0.0.0.0',
       },
       plugins: [react()],
+      build: {
+        outDir: 'dist',
+        assetsDir: 'assets',
+        sourcemap: false,
+      },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
