@@ -1,0 +1,5 @@
+{
+  "name": "Playbook to PDF Converter",
+  "description": "An intelligent tool that transforms raw JSON playbook workflows into professionally formatted PDF documentation using Gemini.",
+  "requestFramePermissions": []
+}
