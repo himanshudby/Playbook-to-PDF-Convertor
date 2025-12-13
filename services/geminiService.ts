@@ -1,8 +1,23 @@
 import { GoogleGenAI } from "@google/genai";
 
 // Initialize Gemini Client
-// Assumption: process.env.API_KEY is available in the environment
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Vite exposes environment variables prefixed with VITE_ to the client
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+
+if (!apiKey) {
+  console.error("VITE_GEMINI_API_KEY is not set in environment variables");
+  console.error("Please create a .env.local file with: VITE_GEMINI_API_KEY=your_api_key_here");
+}
+
+// Initialize the client - will fail gracefully if API key is missing
+let ai: GoogleGenAI | null = null;
+if (apiKey) {
+  try {
+    ai = new GoogleGenAI({ apiKey });
+  } catch (error) {
+    console.error("Failed to initialize Gemini client:", error);
+  }
+}
 
 export const generateDocumentContent = async (fileContents: { name: string; content: string }[]): Promise<string> => {
   if (fileContents.length === 0) {
@@ -42,6 +57,14 @@ export const generateDocumentContent = async (fileContents: { name: string; cont
 
   promptParts.push("\n### Output HTML:");
 
+  if (!apiKey) {
+    throw new Error("API key is not configured. Please set VITE_GEMINI_API_KEY in your .env.local file.");
+  }
+
+  if (!ai) {
+    throw new Error("Gemini client is not initialized. Please check your API key configuration.");
+  }
+
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -60,8 +83,17 @@ export const generateDocumentContent = async (fileContents: { name: string; cont
     text = text.replace(/```html/g, '').replace(/```/g, '');
 
     return text;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini API Error:", error);
-    throw new Error("Failed to generate documentation. Please check your API key.");
+    
+    // Provide more specific error messages
+    if (error?.message?.includes('API key') || error?.message?.includes('authentication')) {
+      throw new Error("Invalid API key. Please check your VITE_GEMINI_API_KEY in .env.local file.");
+    }
+    if (error?.message?.includes('quota') || error?.message?.includes('rate limit')) {
+      throw new Error("API quota exceeded or rate limit reached. Please try again later.");
+    }
+    
+    throw new Error(`Failed to generate documentation: ${error?.message || 'Unknown error'}`);
   }
 };
