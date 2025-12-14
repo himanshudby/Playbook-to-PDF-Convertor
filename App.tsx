@@ -67,16 +67,57 @@ const App: React.FC = () => {
     const element = document.getElementById('document-preview-content');
     if (!element) return;
 
+    // Temporarily modify styles to prevent blank pages
+    const playbookPages = element.querySelectorAll('.playbook-page');
+    const styleBackups: Array<{ element: HTMLElement; originalStyle: string }> = [];
+    
+    playbookPages.forEach((page, index) => {
+      const htmlElement = page as HTMLElement;
+      if (index > 0) {
+        // Backup original style
+        styleBackups.push({
+          element: htmlElement,
+          originalStyle: htmlElement.style.cssText
+        });
+        // Remove page-break-before to prevent blank pages
+        htmlElement.style.pageBreakBefore = 'auto';
+        htmlElement.style.breakBefore = 'auto';
+      }
+    });
+
     const opt = {
-      margin: [0, 0, 0, 0], // Zero margin as our HTML handles the padding/layout
+      margin: [0, 0, 0, 0],
       filename: 'playbook-documentation.pdf',
       image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['css', 'legacy'], avoid: ['.playbook-page'] }
+      html2canvas: { 
+        scale: 2, 
+        useCORS: true, 
+        logging: false
+      },
+      jsPDF: { 
+        unit: 'mm', 
+        format: 'a4', 
+        orientation: 'portrait',
+        compress: true
+      },
+      pagebreak: { 
+        mode: ['avoid-all'],
+        avoid: ['.playbook-page']
+      }
     };
 
-    html2pdf().set(opt).from(element).save();
+    html2pdf().set(opt).from(element).save().then(() => {
+      // Restore original styles
+      styleBackups.forEach(({ element, originalStyle }) => {
+        element.style.cssText = originalStyle;
+      });
+    }).catch((error) => {
+      console.error('PDF generation error:', error);
+      // Restore original styles on error
+      styleBackups.forEach(({ element, originalStyle }) => {
+        element.style.cssText = originalStyle;
+      });
+    });
   };
 
   return (

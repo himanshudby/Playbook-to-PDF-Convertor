@@ -33,16 +33,21 @@
         background-color: white;
         box-sizing: border-box;
         page-break-inside: avoid; /* Prevent breaking content within a playbook */
+        break-inside: avoid; /* Modern CSS property */
+        min-height: 0; /* Allow natural height */
       }
 
-      /* Page break before each playbook except the first one */
-      .playbook-page:not(:first-child) {
-        page-break-before: always;
+      /* Only add page break if there's content before (prevents blank pages) */
+      .playbook-page + .playbook-page {
+        /* Let html2pdf handle page breaks naturally based on content overflow */
+        margin-top: 0;
       }
-
-      /* Ensure html2pdf respects the page break */
-      .html2pdf__page-break {
-        page-break-before: always;
+      
+      /* For PDF generation, use a smarter page break approach */
+      @media print {
+        .playbook-page:not(:first-child) {
+          page-break-before: auto; /* Let it break naturally */
+        }
       }
 
       /* Compact table styles for generated content */
