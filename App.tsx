@@ -7,36 +7,117 @@ import { UploadedFileList } from './components/UploadedFileList';
 
 // Declare html2pdf and aistudio globally
 declare const html2pdf: any;
-declare const window: any;
+
+interface AIStudio {
+  hasSelectedApiKey?: () => Promise<boolean>;
+  openSelectKey?: () => Promise<void>;
+  getApiKey?: () => Promise<string>;
+}
+
+declare global {
+  interface Window {
+    aistudio?: AIStudio;
+  }
+}
 
 const App: React.FC = () => {
+  console.log("=== App component rendered ===");
+  
   const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [manualApiKey, setManualApiKey] = useState<string>(''); // Session-only API key
   const [files, setFiles] = useState<File[]>([]);
   const [logo, setLogo] = useState<string | null>(null);
   const [description, setDescription] = useState<string>('');
   const [generatedContent, setGeneratedContent] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | React.ReactNode | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const checkKey = async () => {
-      if (window.aistudio?.hasSelectedApiKey) {
-        const selected = await window.aistudio.hasSelectedApiKey();
-        setHasKey(selected);
-      } else {
-        // Fallback for environments without the selection utility
+      console.log("Checking for API key...");
+      console.log("window.aistudio available:", !!window.aistudio);
+      console.log("window.aistudio methods:", window.aistudio ? Object.keys(window.aistudio) : []);
+      console.log("Manual API key set:", !!manualApiKey);
+      
+      // Priority: Manual key > AI Studio > Environment variable
+      if (manualApiKey) {
+        console.log("Using manually entered API key");
         setHasKey(true);
+        return;
+      }
+      
+      if (window.aistudio?.hasSelectedApiKey) {
+        // AI Studio environment - check if key is selected
+        try {
+          const selected = await window.aistudio.hasSelectedApiKey();
+          console.log("API key selected status:", selected);
+          setHasKey(selected);
+        } catch (error) {
+          console.error("Error checking API key:", error);
+          // Fallback to checking environment variables
+          const envKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+          setHasKey(!!envKey);
+        }
+      } else {
+        // Fallback for environments without AI Studio (like Vercel)
+        // Check if environment variable is available
+        const envKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+        console.log("Using environment variable fallback:", !!envKey);
+        setHasKey(!!envKey);
       }
     };
     checkKey();
-  }, []);
+  }, [manualApiKey]);
 
   const handleOpenKeyDialog = async () => {
-    if (window.aistudio?.openSelectKey) {
+    console.log("=== handleOpenKeyDialog called ===");
+    console.log("window.aistudio:", window.aistudio);
+    console.log("window.aistudio?.openSelectKey:", window.aistudio?.openSelectKey);
+    
+    if (!window.aistudio?.openSelectKey) {
+      // Fallback for non-AI Studio environments
+      const envKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+      
+      if (envKey) {
+        // Environment variable is set, allow them to proceed
+        console.log("Using environment variable for API key");
+        setHasKey(true);
+        setError(null);
+      } else {
+        // No API key available at all
+        console.warn("AI Studio API not available and no environment variable set.");
+        setError("AI Studio API is not available in this environment. To use this app, either test it in AI Studio (where window.aistudio is available) or set VITE_GEMINI_API_KEY environment variable in your deployment settings.");
+      }
+      return;
+    }
+
+    try {
+      console.log("Opening API key selection dialog...");
       await window.aistudio.openSelectKey();
-      // Assume success as per instructions to avoid race condition issues
-      setHasKey(true);
+      console.log("API key dialog closed");
+      
+      // Wait a bit for the key to be registered
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Re-check if a key was selected after the dialog closes
+      if (window.aistudio?.hasSelectedApiKey) {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        console.log("API key selected:", selected);
+        setHasKey(selected);
+        
+        if (!selected) {
+          setError("No API key was selected. Please try again.");
+        }
+      } else {
+        // Fallback: assume success if we can't check
+        console.log("Cannot verify key selection, assuming success");
+        setHasKey(true);
+      }
+    } catch (error) {
+      console.error("Error opening API key dialog:", error);
+      setError("Failed to open API key dialog. Please try again.");
+      // Don't change hasKey state on error - let user try again
     }
   };
 
@@ -76,7 +157,7 @@ const App: React.FC = () => {
 
     try {
       const fileContents = await readFilesAsText(files);
-      const content = await generateDocumentContent(fileContents);
+      const content = await generateDocumentContent(fileContents, manualApiKey);
       setGeneratedContent(content);
     } catch (err: any) {
       if (err.message === "API_KEY_NOT_FOUND") {
@@ -145,14 +226,74 @@ const App: React.FC = () => {
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
-            <button
-              onClick={handleOpenKeyDialog}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-6 rounded-xl transition-all shadow-lg hover:shadow-indigo-200"
-            >
-              Connect My API Key
-            </button>
+            {error && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                {typeof error === 'string' ? error : error}
+              </div>
+            )}
+            
+            {/* Manual API Key Input */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-700">
+                Or enter your API key manually (session only)
+              </label>
+              <input
+                type="password"
+                value={manualApiKey}
+                onChange={(e) => setManualApiKey(e.target.value)}
+                placeholder="Enter your Gemini API key"
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+              {manualApiKey && (
+                <button
+                  onClick={() => {
+                    setManualApiKey('');
+                    setError(null);
+                  }}
+                  className="text-xs text-slate-500 hover:text-red-600"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              {window.aistudio?.openSelectKey && (
+                <button
+                  onClick={(e) => {
+                    console.log("Button clicked!", e);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleOpenKeyDialog();
+                  }}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-6 rounded-xl transition-all shadow-lg hover:shadow-indigo-200"
+                  type="button"
+                >
+                  Connect My API Key
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (manualApiKey.trim()) {
+                    setError(null);
+                    setHasKey(true);
+                  } else {
+                    setError("Please enter an API key or use the Connect button if available.");
+                  }
+                }}
+                className={`flex-1 font-bold py-4 px-6 rounded-xl transition-all shadow-lg ${
+                  manualApiKey.trim()
+                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow-indigo-200'
+                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                }`}
+                type="button"
+                disabled={!manualApiKey.trim()}
+              >
+                Use Manual Key
+              </button>
+            </div>
             <p className="text-center text-xs text-slate-400">
-              Your key is handled securely and is never stored on our servers.
+              Your key is handled securely and is never stored on our servers. It will be cleared when you refresh the page.
             </p>
           </div>
         </div>
@@ -173,11 +314,17 @@ const App: React.FC = () => {
             <h1 className="text-xl font-bold text-slate-900">Playbook DocuGen</h1>
           </div>
           <div className="flex items-center gap-4">
+            <div className="text-xs text-slate-400 flex items-center gap-1 px-2 py-1 rounded bg-slate-50">
+              <ShieldCheck className="w-3 h-3" />
+              {manualApiKey ? 'Manual Key' : window.aistudio ? 'AI Studio' : 'Env Key'}
+            </div>
             <button 
-              onClick={() => setHasKey(false)}
+              onClick={() => {
+                setHasKey(false);
+                setManualApiKey('');
+              }}
               className="text-xs text-slate-400 hover:text-indigo-600 flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-50"
             >
-              <ShieldCheck className="w-3 h-3" />
               Change Key
             </button>
             <div className="text-sm text-slate-500 hidden sm:block">

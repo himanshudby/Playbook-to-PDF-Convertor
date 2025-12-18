@@ -1,13 +1,54 @@
 import { GoogleGenAI } from "@google/genai";
 
-export const generateDocumentContent = async (fileContents: { name: string; content: string }[]): Promise<string> => {
+// Declare window.aistudio for TypeScript
+declare const window: {
+  aistudio?: {
+    getApiKey?: () => Promise<string>;
+    hasSelectedApiKey?: () => Promise<boolean>;
+  };
+} & Window;
+
+export const generateDocumentContent = async (
+  fileContents: { name: string; content: string }[],
+  manualApiKey?: string
+): Promise<string> => {
   if (fileContents.length === 0) {
     throw new Error("No file content provided.");
   }
 
+  // Priority: Manual API key > AI Studio > Environment variable
+  let apiKey: string | undefined;
+  
+  // 1. Check manual API key first (session-only)
+  if (manualApiKey && manualApiKey.trim()) {
+    apiKey = manualApiKey.trim();
+    console.log("Using manually entered API key");
+  }
+  // 2. Check AI Studio API
+  else if (window.aistudio?.getApiKey) {
+    try {
+      apiKey = await window.aistudio.getApiKey();
+      console.log("Using API key from AI Studio");
+    } catch (error) {
+      console.error("Failed to get API key from AI Studio:", error);
+      throw new Error("API_KEY_NOT_FOUND");
+    }
+  }
+  // 3. Fallback to environment variable
+  else {
+    apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+    if (apiKey) {
+      console.log("Using API key from environment variable");
+    }
+  }
+
+  if (!apiKey) {
+    throw new Error("API_KEY_NOT_FOUND");
+  }
+
   // Create a new instance right before making the call to ensure it uses 
   // the up-to-date API key from the selection dialog as per security guidelines.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey });
 
   // Construct a robust prompt for the model to generate HTML directly
   const promptParts = [
