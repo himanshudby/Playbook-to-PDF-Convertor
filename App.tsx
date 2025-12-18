@@ -206,10 +206,7 @@ const App: React.FC = () => {
             <div className="bg-white/20 p-4 rounded-full mb-4">
               <ShieldCheck className="w-12 h-12" />
             </div>
-            <h1 className="text-2xl font-bold">Secure Connection</h1>
-            <p className="text-indigo-100 text-center mt-2">
-              Playbook DocuGen requires a personal API key to process your data securely.
-            </p>
+            <h1 className="text-2xl font-bold">Playbook Document Generator</h1>
           </div>
           <div className="p-8 space-y-6">
             <div className="text-sm text-slate-600 space-y-4">
