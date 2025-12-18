@@ -1,14 +1,16 @@
-import React, { useState, useRef } from 'react';
-import { FileUp, FileText, Loader2, Download, RefreshCw, Trash2, Image, X } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { FileUp, FileText, Loader2, Download, RefreshCw, Image, X, ShieldCheck, ExternalLink } from 'lucide-react';
 import { generateDocumentContent } from './services/geminiService';
 import { readFilesAsText } from './utils/fileHelpers';
 import { FileUploader } from './components/FileUploader';
 import { UploadedFileList } from './components/UploadedFileList';
 
-// Declare html2pdf globally as it's loaded via CDN
+// Declare html2pdf and aistudio globally
 declare const html2pdf: any;
+declare const window: any;
 
 const App: React.FC = () => {
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [logo, setLogo] = useState<string | null>(null);
   const [description, setDescription] = useState<string>('');
@@ -16,6 +18,27 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const checkKey = async () => {
+      if (window.aistudio?.hasSelectedApiKey) {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasKey(selected);
+      } else {
+        // Fallback for environments without the selection utility
+        setHasKey(true);
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleOpenKeyDialog = async () => {
+    if (window.aistudio?.openSelectKey) {
+      await window.aistudio.openSelectKey();
+      // Assume success as per instructions to avoid race condition issues
+      setHasKey(true);
+    }
+  };
 
   const handleFilesSelected = (newFiles: File[]) => {
     setFiles((prev) => [...prev, ...newFiles]);
@@ -55,8 +78,13 @@ const App: React.FC = () => {
       const fileContents = await readFilesAsText(files);
       const content = await generateDocumentContent(fileContents);
       setGeneratedContent(content);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate documentation.");
+    } catch (err: any) {
+      if (err.message === "API_KEY_NOT_FOUND") {
+        setError("Your API key was not found or is invalid. Please reconnect.");
+        setHasKey(false);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to generate documentation.");
+      }
       console.error(err);
     } finally {
       setIsGenerating(false);
@@ -67,61 +95,74 @@ const App: React.FC = () => {
     const element = document.getElementById('document-preview-content');
     if (!element) return;
 
-    // Temporarily modify styles to prevent blank pages
-    const playbookPages = element.querySelectorAll('.playbook-page');
-    const styleBackups: Array<{ element: HTMLElement; originalStyle: string }> = [];
-    
-    playbookPages.forEach((page, index) => {
-      const htmlElement = page as HTMLElement;
-      if (index > 0) {
-        // Backup original style
-        styleBackups.push({
-          element: htmlElement,
-          originalStyle: htmlElement.style.cssText
-        });
-        // Remove page-break-before to prevent blank pages
-        htmlElement.style.pageBreakBefore = 'auto';
-        htmlElement.style.breakBefore = 'auto';
-      }
-    });
-
     const opt = {
       margin: [0, 0, 0, 0],
       filename: 'playbook-documentation.pdf',
       image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { 
-        scale: 2, 
-        useCORS: true, 
-        logging: false
-      },
-      jsPDF: { 
-        unit: 'mm', 
-        format: 'a4', 
-        orientation: 'portrait',
-        compress: true
-      },
-      pagebreak: { 
-        mode: ['avoid-all'],
-        avoid: ['.playbook-page']
-      }
+      html2canvas: { scale: 2, useCORS: true, logging: false },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'] }
     };
 
-    html2pdf().set(opt).from(element).save().then(() => {
-      // Restore original styles
-      styleBackups.forEach(({ element, originalStyle }) => {
-        element.style.cssText = originalStyle;
-      });
-    }).catch((error) => {
-      console.error('PDF generation error:', error);
-      // Restore original styles on error
-      styleBackups.forEach(({ element, originalStyle }) => {
-        element.style.cssText = originalStyle;
-      });
-    });
+    html2pdf().set(opt).from(element).save();
   };
 
+  // 1. Initial Loading State
+  if (hasKey === null) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+      </div>
+    );
+  }
+
+  // 2. Key Selection Gateway
+  if (!hasKey) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+          <div className="bg-indigo-600 p-8 flex flex-col items-center text-white">
+            <div className="bg-white/20 p-4 rounded-full mb-4">
+              <ShieldCheck className="w-12 h-12" />
+            </div>
+            <h1 className="text-2xl font-bold">Secure Connection</h1>
+            <p className="text-indigo-100 text-center mt-2">
+              Playbook DocuGen requires a personal API key to process your data securely.
+            </p>
+          </div>
+          <div className="p-8 space-y-6">
+            <div className="text-sm text-slate-600 space-y-4">
+              <p>
+                To maintain privacy and ensure you stay within your own usage limits, please connect your Gemini API key from a paid Google Cloud project.
+              </p>
+              <a 
+                href="https://ai.google.dev/gemini-api/docs/billing" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-indigo-600 font-medium hover:underline"
+              >
+                Learn about Gemini API billing
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+            <button
+              onClick={handleOpenKeyDialog}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-6 rounded-xl transition-all shadow-lg hover:shadow-indigo-200"
+            >
+              Connect My API Key
+            </button>
+            <p className="text-center text-xs text-slate-400">
+              Your key is handled securely and is never stored on our servers.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Main Application Interface
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col animate-in fade-in duration-700">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -131,8 +172,17 @@ const App: React.FC = () => {
             </div>
             <h1 className="text-xl font-bold text-slate-900">Playbook DocuGen</h1>
           </div>
-          <div className="text-sm text-slate-500 hidden sm:block">
-            Powered by Gemini 2.5 Flash
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setHasKey(false)}
+              className="text-xs text-slate-400 hover:text-indigo-600 flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-50"
+            >
+              <ShieldCheck className="w-3 h-3" />
+              Change Key
+            </button>
+            <div className="text-sm text-slate-500 hidden sm:block">
+              Powered by Gemini 2.5 Flash
+            </div>
           </div>
         </div>
       </header>
@@ -282,7 +332,7 @@ const App: React.FC = () => {
                              />
                            )}
                            {description && (
-                             <div className="text-slate-600 max-w-2xl mx-auto whitespace-pre-wrap font-medium">
+                             <div className="text-slate-600 max-w-2xl mx-auto whitespace-pre-wrap font-medium text-left px-4">
                                {description}
                              </div>
                            )}

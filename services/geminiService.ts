@@ -1,28 +1,13 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Initialize Gemini Client
-// Vite exposes environment variables prefixed with VITE_ to the client
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-
-if (!apiKey) {
-  console.error("VITE_GEMINI_API_KEY is not set in environment variables");
-  console.error("Please create a .env.local file with: VITE_GEMINI_API_KEY=your_api_key_here");
-}
-
-// Initialize the client - will fail gracefully if API key is missing
-let ai: GoogleGenAI | null = null;
-if (apiKey) {
-  try {
-    ai = new GoogleGenAI({ apiKey });
-  } catch (error) {
-    console.error("Failed to initialize Gemini client:", error);
-  }
-}
-
 export const generateDocumentContent = async (fileContents: { name: string; content: string }[]): Promise<string> => {
   if (fileContents.length === 0) {
     throw new Error("No file content provided.");
   }
+
+  // Create a new instance right before making the call to ensure it uses 
+  // the up-to-date API key from the selection dialog as per security guidelines.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   // Construct a robust prompt for the model to generate HTML directly
   const promptParts = [
@@ -32,7 +17,7 @@ export const generateDocumentContent = async (fileContents: { name: string; cont
     "1. **Format**: Output raw HTML code only. Do NOT use markdown blocks (```html).",
     "2. **Styling**: Use Tailwind CSS classes for all styling. Make it look clean, modern, and professional (e.g., bg-slate-50, text-slate-800, border-slate-200).",
     "3. **Length Constraint**: Each playbook MUST fit on exactly ONE A4 page. You must summarize strictly.",
-    "4. **Page Breaks**: Wrap EACH playbook in a container with the class `playbook-page`. DO NOT add any page-break-after styles. The CSS will handle page breaks automatically between playbooks.",
+    "4. **Page Breaks**: Wrap EACH playbook in a container with the class `playbook-page`. Add `style='page-break-after: always'` to every playbook container except the last one.",
     "5. **Completeness**: You MUST generate a section for EVERY single JSON file provided below. Do not skip any files.",
     "6. **No Timestamp**: Do NOT add any 'Generated on [Date]' text or footer at the end of the document.",
     "7. **No Title Page**: Do NOT generate a main document title or cover page. Start directly with the content of the first playbook.",
@@ -52,25 +37,17 @@ export const generateDocumentContent = async (fileContents: { name: string; cont
 
   fileContents.forEach((file, index) => {
     promptParts.push(`\n--- FILE ${index + 1}: ${file.name} ---`);
-    promptParts.push(JSON.stringify(file.content).substring(0, 15000)); // Limit context per file to avoid token limits if files are huge
+    promptParts.push(JSON.stringify(file.content).substring(0, 15000));
   });
 
   promptParts.push("\n### Output HTML:");
-
-  if (!apiKey) {
-    throw new Error("API key is not configured. Please set VITE_GEMINI_API_KEY in your .env.local file.");
-  }
-
-  if (!ai) {
-    throw new Error("Gemini client is not initialized. Please check your API key configuration.");
-  }
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: promptParts.join('\n'),
       config: {
-        temperature: 0.2, // Low temperature for consistent formatting
+        temperature: 0.2,
       }
     });
 
@@ -81,27 +58,16 @@ export const generateDocumentContent = async (fileContents: { name: string; cont
 
     // Cleanup if the model accidentally wraps in markdown despite instructions
     text = text.replace(/```html/g, '').replace(/```/g, '');
-    
-    // Remove any page-break-after styles that might cause blank pages
-    text = text.replace(/page-break-after:\s*always/gi, '');
-    text = text.replace(/style=['"]page-break-after:\s*always['"]/gi, '');
-    text = text.replace(/style=['"][^'"]*page-break-after:\s*always[^'"]*['"]/gi, (match) => {
-      // Remove page-break-after from style attribute, keep rest
-      return match.replace(/page-break-after:\s*always;?/gi, '').replace(/;\s*;/g, ';');
-    });
 
     return text;
   } catch (error: any) {
     console.error("Gemini API Error:", error);
     
-    // Provide more specific error messages
-    if (error?.message?.includes('API key') || error?.message?.includes('authentication')) {
-      throw new Error("Invalid API key. Please check your VITE_GEMINI_API_KEY in .env.local file.");
-    }
-    if (error?.message?.includes('quota') || error?.message?.includes('rate limit')) {
-      throw new Error("API quota exceeded or rate limit reached. Please try again later.");
+    // If the error indicates a missing key or project, we let the UI handle a re-prompt
+    if (error.message?.includes("Requested entity was not found")) {
+      throw new Error("API_KEY_NOT_FOUND");
     }
     
-    throw new Error(`Failed to generate documentation: ${error?.message || 'Unknown error'}`);
+    throw new Error("Failed to generate documentation. Please ensure you have a valid API key with billing enabled.");
   }
 };

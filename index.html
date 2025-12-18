@@ -31,23 +31,13 @@
       .playbook-page {
         padding: 40px;
         background-color: white;
+        min-height: 1122px; /* Approx A4 height at 96dpi */
         box-sizing: border-box;
-        page-break-inside: avoid; /* Prevent breaking content within a playbook */
-        break-inside: avoid; /* Modern CSS property */
-        min-height: 0; /* Allow natural height */
       }
 
-      /* Only add page break if there's content before (prevents blank pages) */
-      .playbook-page + .playbook-page {
-        /* Let html2pdf handle page breaks naturally based on content overflow */
-        margin-top: 0;
-      }
-      
-      /* For PDF generation, use a smarter page break approach */
-      @media print {
-        .playbook-page:not(:first-child) {
-          page-break-before: auto; /* Let it break naturally */
-        }
+      /* Ensure html2pdf respects the page break */
+      .html2pdf__page-break {
+        page-break-before: always;
       }
 
       /* Compact table styles for generated content */
@@ -79,9 +69,19 @@
         margin-bottom: 0.25rem;
       }
     </style>
-  </head>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.33.0"
+  }
+}
+</script>
+</head>
   <body class="bg-slate-50 text-slate-900 antialiased">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
