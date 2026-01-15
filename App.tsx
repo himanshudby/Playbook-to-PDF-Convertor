@@ -211,10 +211,10 @@ const App: React.FC = () => {
           <div className="p-8 space-y-6">
             <div className="text-sm text-slate-600 space-y-4">
               <p>
-                To maintain privacy and ensure you stay within your own usage limits, please connect your Gemini API key from a paid Google Cloud project.
+                To maintain privacy and ensure you stay within your own usage limits, please connect your own Gemini API key from a Google Cloud project.
               </p>
               <a 
-                href="https://ai.google.dev/gemini-api/docs/billing" 
+                href="https://aistudio.google.com/api-keys" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-indigo-600 font-medium hover:underline"
