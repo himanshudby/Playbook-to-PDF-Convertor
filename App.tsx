@@ -219,7 +219,7 @@ const App: React.FC = () => {
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-indigo-600 font-medium hover:underline"
               >
-                Learn about Gemini API billing
+                Get the API key
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
