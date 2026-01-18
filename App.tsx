@@ -250,7 +250,7 @@ const App: React.FC = () => {
           <div className="p-8 space-y-6">
             <div className="text-sm text-slate-600 space-y-4">
               <p>
-                To maintain privacy and ensure you stay within your own usage limits, please connect your own Gemini API key from a Google Cloud project.
+                To maintain privacy and ensure you stay within your own usage limits, please connect your own Gemini API key from a Google Cloud project or use the link below.
               </p>
               <a 
                 href="https://aistudio.google.com/api-keys" 
