@@ -58,7 +58,7 @@ export const generateDocumentContent = async (
     "### CRITICAL REQUIREMENTS:",
     "1. **Format**: Output raw HTML code only. Do NOT use markdown blocks (```html).",
     "2. **Styling**: Use Tailwind CSS classes for all styling. Make it look clean, modern, and professional (e.g., bg-slate-50, text-slate-800, border-slate-200).",
-    "3. **Page Breaks**: Wrap EACH playbook in a container with the class `playbook-page`. Add `style='page-break-after: always'` to every playbook container except the last one.",
+    "3. **Page Breaks**: Wrap EACH playbook in a container with the class `playbook-page`. DO NOT add any page-break-after styles. The CSS will handle page breaks automatically between playbooks.",
     "4. **Completeness**: You MUST generate a section for EVERY single JSON file provided below. Do not skip any files.",
     "5. **No Timestamp**: Do NOT add any 'Generated on [Date]' text or footer at the end of the document.",
     "6. **No Title Page**: Do NOT generate a main document title or cover page. Start directly with the content of the first playbook.",
@@ -163,6 +163,14 @@ export const generateDocumentContent = async (
 
     // Cleanup if the model accidentally wraps in markdown despite instructions
     text = text.replace(/```html/g, '').replace(/```/g, '');
+    
+    // Remove any page-break-after styles that might cause blank pages
+    text = text.replace(/page-break-after:\s*always/gi, '');
+    text = text.replace(/style=['"]page-break-after:\s*always['"]/gi, '');
+    text = text.replace(/style=['"][^'"]*page-break-after:\s*always[^'"]*['"]/gi, (match) => {
+      // Remove page-break-after from style attribute, keep rest
+      return match.replace(/page-break-after:\s*always;?/gi, '').replace(/;\s*;/g, ';');
+    });
 
     return text;
   } catch (error: any) {
