@@ -127,3 +127,61 @@ export const minimizePlaybookJSON = (jsonContent: string): string => {
     return jsonContent;
   }
 };
+
+/** Max length for one file's content in a single request (leaves room for prompt). */
+export const MAX_FILE_CONTENT_LENGTH = 50_000;
+
+/**
+ * If minimized JSON exceeds maxLength, truncate at a structural boundary so the
+ * result is still valid JSON and the model gets a complete (partial) playbook.
+ * Keeps as many full nodes as fit, and edges that only reference those nodes.
+ */
+export const truncatePlaybookJSONToLength = (
+  minimizedJson: string,
+  maxLength: number = MAX_FILE_CONTENT_LENGTH
+): string => {
+  if (minimizedJson.length <= maxLength) return minimizedJson;
+  try {
+    const parsed = JSON.parse(minimizedJson);
+    const nodeIds = parsed.nodes ? Object.keys(parsed.nodes) : [];
+    if (nodeIds.length === 0) return minimizedJson.substring(0, maxLength - 20) + '...[truncated]}';
+
+    const truncated: any = {
+      title: parsed.title,
+      start_node: parsed.start_node,
+      type: parsed.type,
+      status: parsed.status,
+      description: parsed.description,
+      nodes: {},
+      edges: [],
+    };
+    if (parsed.output_params) truncated.output_params = parsed.output_params;
+    if (parsed.tags) truncated.tags = parsed.tags;
+    if (parsed.labels) truncated.labels = parsed.labels;
+
+    const overhead = JSON.stringify(truncated).length + 100;
+    const budget = maxLength - overhead - 50; // reserve for "...[truncated]" and closing
+
+    for (let i = 0; i < nodeIds.length; i++) {
+      const id = nodeIds[i];
+      const node = parsed.nodes[id];
+      const nodeStr = JSON.stringify({ [id]: node });
+      if (JSON.stringify(truncated.nodes).length + nodeStr.length > budget) break;
+      truncated.nodes[id] = node;
+    }
+
+    const keptIds = new Set(Object.keys(truncated.nodes));
+    if (parsed.edges && Array.isArray(parsed.edges)) {
+      truncated.edges = parsed.edges.filter(
+        (e: any) => keptIds.has(e.source_node) && keptIds.has(e.destination_node)
+      );
+    }
+
+    const out = JSON.stringify(truncated);
+    return out.length > maxLength
+      ? out.substring(0, maxLength - 20) + '...[truncated]'
+      : out;
+  } catch {
+    return minimizedJson.substring(0, maxLength - 20) + '...[truncated]';
+  }
+};

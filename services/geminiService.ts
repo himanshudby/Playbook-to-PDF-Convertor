@@ -1,5 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
-import { minimizePlaybookJSON } from "../utils/fileHelpers";
+import {
+  minimizePlaybookJSON,
+  truncatePlaybookJSONToLength,
+  MAX_FILE_CONTENT_LENGTH,
+} from "../utils/fileHelpers";
+
+/** Max total file content size per API request (keeps prompt + content within context). */
+const MAX_CONTENT_PER_REQUEST = 55_000;
 
 // Declare window.aistudio for TypeScript
 declare const window: {
@@ -134,40 +141,80 @@ export const generateDocumentContent = async (
     "### Input Data:",
   ];
 
-  fileContents.forEach((file, index) => {
-    promptParts.push(`\n--- FILE ${index + 1}: ${file.name} ---`);
-    
-    // Minimize JSON content to reduce size before sending to AI
-    let minimizedContent: string;
+  // Prepare each file: minimize, then structurally truncate if still too long (keeps valid JSON)
+  type PreparedFile = { name: string; content: string; truncated?: boolean };
+  const prepared: PreparedFile[] = fileContents.map((file) => {
+    let content: string;
     try {
-      // Try to minimize if it's valid JSON
-      minimizedContent = minimizePlaybookJSON(file.content);
-    } catch (error) {
-      // If minimization fails, use original content
-      console.warn(`Failed to minimize ${file.name}, using original content`);
-      minimizedContent = file.content;
+      content = minimizePlaybookJSON(file.content);
+    } catch {
+      content = file.content;
     }
-    
-    // Still apply character limit but now on minimized content (allows more playbooks per request)
-    const contentToSend = minimizedContent.length > 20000 
-      ? minimizedContent.substring(0, 20000) + '...[truncated]'
-      : minimizedContent;
-    
-    promptParts.push(contentToSend);
+    const truncated = content.length > MAX_FILE_CONTENT_LENGTH;
+    if (truncated) {
+      content = truncatePlaybookJSONToLength(content, MAX_FILE_CONTENT_LENGTH);
+    }
+    return { name: file.name, content, truncated };
   });
 
-  promptParts.push("\n### Output HTML:");
+  // Chunk files by total size so each request stays within context limits
+  const chunks: PreparedFile[][] = [];
+  let currentChunk: PreparedFile[] = [];
+  let currentSize = 0;
+  for (const file of prepared) {
+    const fileSize = file.content.length + (file.name.length + 50);
+    if (currentChunk.length > 0 && currentSize + fileSize > MAX_CONTENT_PER_REQUEST) {
+      chunks.push(currentChunk);
+      currentChunk = [];
+      currentSize = 0;
+    }
+    currentChunk.push(file);
+    currentSize += fileSize;
+  }
+  if (currentChunk.length > 0) chunks.push(currentChunk);
+
+  const htmlParts: string[] = [];
+  const isMultiChunk = chunks.length > 1;
 
   try {
+  for (let c = 0; c < chunks.length; c++) {
+    const chunk = chunks[c];
+    const chunkPromptParts = [...promptParts];
+
+    // For multi-chunk, tell model this is a batch and not to add title/header for continuation
+    if (isMultiChunk && c > 0) {
+      chunkPromptParts.push(
+        "\n(You are generating a continuation of a longer document. Output HTML for the playbooks below only. Do NOT add a document title, cover page, or 'Generated on' footer.)"
+      );
+    }
+
+    chunk.forEach((file, index) => {
+      const globalIndex = chunks.slice(0, c).reduce((sum, arr) => sum + arr.length, 0) + index + 1;
+      chunkPromptParts.push(`\n--- FILE ${globalIndex}: ${file.name} ---`);
+      if (file.truncated) {
+        chunkPromptParts.push("(This file was truncated due to length; document the workflow from the partial data above.)");
+      }
+      chunkPromptParts.push(file.content);
+    });
+
+    chunkPromptParts.push("\n### Output HTML:");
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: promptParts.join('\n'),
+      contents: chunkPromptParts.join('\n'),
       config: {
         temperature: 0.2,
-      }
+      },
     });
 
     let text = response.text;
+    if (!text) {
+      throw new Error(`Gemini returned an empty response for chunk ${c + 1}/${chunks.length}.`);
+    }
+    htmlParts.push(text);
+  }
+
+    let text = htmlParts.join("\n");
     if (!text) {
       throw new Error("Gemini returned an empty response.");
     }
