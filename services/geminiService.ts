@@ -2,11 +2,13 @@ import { GoogleGenAI } from "@google/genai";
 import {
   minimizePlaybookJSON,
   truncatePlaybookJSONToLength,
+  playbookToDocsOutline,
+  extractPlaybooksFromFile,
   MAX_FILE_CONTENT_LENGTH,
 } from "../utils/fileHelpers";
 
-/** Max total file content size per API request (keeps prompt + content within context). */
-const MAX_CONTENT_PER_REQUEST = 55_000;
+/** Max total file content size per API request (prompt is ~6k; keep request well under context). */
+const MAX_CONTENT_PER_REQUEST = 26_000;
 
 // Declare window.aistudio for TypeScript
 declare const window: {
@@ -139,22 +141,50 @@ export const generateDocumentContent = async (
     "- Group related playbooks together when possible (parent followed by its sub-playbooks).",
     " ",
     "### Input Data:",
+    "Input may be either (1) JSON playbook structure or (2) a compact text outline with '## Steps (flow order)' and '## Edges'. For outlines, each step line is: number. [node_id] title (type) | Action: ... | Inputs: ... Generate the same HTML sections (header, workflow structure, summary, steps, key inputs) from the outline using the step titles and flow.",
   ];
 
-  // Prepare each file: minimize, then structurally truncate if still too long (keeps valid JSON)
-  type PreparedFile = { name: string; content: string; truncated?: boolean };
-  const prepared: PreparedFile[] = fileContents.map((file) => {
-    let content: string;
-    try {
-      content = minimizePlaybookJSON(file.content);
-    } catch {
-      content = file.content;
+  // Expand each file into parent + embedded sub-playbooks so all get documented
+  type PlaybookItem = { name: string; content: string; parentName?: string };
+  const allPlaybooks: PlaybookItem[] = [];
+  for (const file of fileContents) {
+    const extracted = extractPlaybooksFromFile(file.content);
+    for (const p of extracted) {
+      allPlaybooks.push({ name: p.name, content: p.content, parentName: p.parentName });
     }
+  }
+
+  // Prepare each playbook: use docs outline when smaller, else minimized JSON
+  type PreparedFile = {
+    name: string;
+    content: string;
+    truncated?: boolean;
+    isOutline?: boolean;
+    parentName?: string;
+  };
+  const prepared: PreparedFile[] = allPlaybooks.map((playbook) => {
+    let minimized: string;
+    try {
+      minimized = minimizePlaybookJSON(playbook.content);
+    } catch {
+      minimized = playbook.content;
+    }
+    const outline = playbookToDocsOutline(playbook.content);
+    const useOutline = outline.length < minimized.length;
+    let content = useOutline ? outline : minimized;
     const truncated = content.length > MAX_FILE_CONTENT_LENGTH;
     if (truncated) {
-      content = truncatePlaybookJSONToLength(content, MAX_FILE_CONTENT_LENGTH);
+      content = useOutline
+        ? outline.substring(0, MAX_FILE_CONTENT_LENGTH - 20) + "\n...[truncated]"
+        : truncatePlaybookJSONToLength(minimized, MAX_FILE_CONTENT_LENGTH);
     }
-    return { name: file.name, content, truncated };
+    return {
+      name: playbook.name,
+      content,
+      truncated,
+      isOutline: useOutline,
+      parentName: playbook.parentName,
+    };
   });
 
   // Chunk files by total size so each request stays within context limits
@@ -191,6 +221,9 @@ export const generateDocumentContent = async (
     chunk.forEach((file, index) => {
       const globalIndex = chunks.slice(0, c).reduce((sum, arr) => sum + arr.length, 0) + index + 1;
       chunkPromptParts.push(`\n--- FILE ${globalIndex}: ${file.name} ---`);
+      if (file.parentName) {
+        chunkPromptParts.push(`(Sub-playbook. Called by: ${file.parentName})`);
+      }
       if (file.truncated) {
         chunkPromptParts.push("(This file was truncated due to length; document the workflow from the partial data above.)");
       }
